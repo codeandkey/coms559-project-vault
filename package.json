@@ -1,0 +1,19 @@
+{
+  "name": "vault",
+  "version": "1.0.0",
+  "description": "An end-to-end encrypted file sharing service.",
+  "main": "backend.js",
+  "scripts": {
+    "test": "test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codeandkey/coms559-project-vault.git"
+  },
+  "author": "Justin Stanley <jtst@iastate.edu>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/codeandkey/coms559-project-vault/issues"
+  },
+  "homepage": "https://github.com/codeandkey/coms559-project-vault#readme"
+}
