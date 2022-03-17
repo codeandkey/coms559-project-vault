@@ -1,0 +1,4 @@
+#!/bin/sh
+mkdir -p cert
+rm -f cert/server.key cert/server.crt
+openssl req -x509 -newkey rsa:4096 -keyout cert/server.key -out cert/server.crt -days 365 -nodes -subj '/CN=localhost'
