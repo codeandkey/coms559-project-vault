@@ -15,5 +15,9 @@
   "bugs": {
     "url": "https://github.com/codeandkey/coms559-project-vault/issues"
   },
-  "homepage": "https://github.com/codeandkey/coms559-project-vault#readme"
+  "homepage": "https://github.com/codeandkey/coms559-project-vault#readme",
+  "dependencies": {
+    "express": "^4.17.3",
+    "pug": "^3.0.2"
+  }
 }
