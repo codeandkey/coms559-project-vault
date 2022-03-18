@@ -1,8 +1,21 @@
 doctype html
 html
     head
-        title Hello world!
-        script(src='/static/index.js' type='text/javascript')
+        title Vault
+        link(rel='stylesheet' href='/static/css/bootstrap.min.css')
+        link(rel='stylesheet' href='/static/css/index.css')
+        script(src='/static/js/jquery-3.6.0.min.js')
+        script(src='/static/js/popper.min.js')
+        script(src='/static/js/bootstrap.min.js')
+        script(src='/static/js/index.js')
     body
-        input(type='file' id='input' multiple)
-        div(id='viewer')
+        div(id='center' class='container')
+            input(type='text' placeholder='Username' class='m-2' id='input-username')
+            br
+            input(type='password' placeholder='Password' class='m-2' id='input-password')
+            br
+            div(class='container-fluid' class='m-2 d-flex justify-content-center')
+                button(type='button' class='btn btn-primary' class='m-2') Login
+                button(type='button' class='btn btn-secondary' class='m-2') Register
+        div(style='container-fluid')
+            div(id='notify' class='alert')

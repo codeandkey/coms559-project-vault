@@ -1,0 +1,21 @@
+#input-username, #input-password {
+    width: 100%;
+}
+
+#center {
+    position: fixed;
+    width: 25%;
+    height: 25%;
+    left: 37.5%;
+    top: 37.5%;
+}
+
+#notify {
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+    text-align: center;
+    position: fixed;
+    top: 62.5%;
+    width: 50%;
+    left: 25%;
+}
