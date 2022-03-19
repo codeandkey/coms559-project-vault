@@ -7,6 +7,7 @@ const SESSION_SECRET = '014a87d765b0299099cae11ba56a991a6dc259a0699e38c765f3816c
 // Requires
 const AWS     = require('aws-sdk')
 const bodyParser = require('body-parser')
+const crypto  = require('crypto')
 const express = require('express')
 const fs      = require('fs')
 const http    = require('http')
@@ -33,6 +34,7 @@ app.set('view engine', 'pug')
 // Body parsing
 app.use(express.raw({limit: '256mb', type: 'application/octet-stream'}))
 app.use(express.json({limit: '16kb', type: 'application/json'}))
+app.use(express.urlencoded({limit: '16kb', extended: true}))
 
 // Web application routes
 app.use('/static', express.static('static'))
@@ -77,56 +79,107 @@ app.post('/api/register', (req, res) => {
     // Check if user exists
     var params = {
         Bucket: BUCKET,
-        Prefix: 'users/' + req.params.user,
+        Prefix: 'users/' + req.body.username,
     }
 
     S3.listObjectsV2(params, (err, data) => {
         if (err)
         {
             console.log('Existing check error: ', err)
-            res.sendStatus(500)
-        } else
-        {
-            if (data.KeyCount > 0)
-                res.send({status: 'error', message: 'User already exists!'})
+            return res.sendStatus(500)
         }
+
+        if (data.KeyCount > 0)
+            return res.send({status: 'error', message: 'Username is taken, please choose another one.'})
+
+        console.log(req.body)
+
+        // Check input fields exist
+        if (!req.body.username || !req.body.privkey || !req.body.pubkey || !req.body.kdf)
+            return res.send({status: 'error', message: 'Invalid request (missing fields)'});
+
+        // Check input field validity
+        if (req.body.username.length > 32)
+            return res.send({status: 'error', message: 'Invalid username (maximum 32 characters)'});
+
+        if (req.body.username.includes('/'))
+            return res.send({status: 'error', message: 'Invalid username (illegal characters)'});
+
+        // Upload user information to s3
+        var params = {
+            Bucket: BUCKET,
+            Key: 'users/' + req.body.username + '/info',
+            Body: JSON.stringify({
+                username: req.body.username,
+                privkey: req.body.privkey,
+                pubkey: req.body.pubkey,
+                kdf: req.body.kdf,
+            })
+        }
+
+        S3.upload(params, (err, data) => {
+            if (err)
+            {
+                console.log('Upload error: ', err)
+                return res.sendStatus(500)
+            }
+
+            console.log('Upload OK: ', data)
+            return res.send({status: 'ok', message: 'Created user'})
+        })
     })
+})
 
-    console.log(req.body)
-
-    // Check input fields exist
-    if (!req.body.username || !req.body.privkey || !req.body.pubkey || !req.body.kdf)
-        return res.send({status: 'error', message: 'Invalid request'});
-
-    // Check input field validity
-    if (req.body.username.length > 32)
-        return res.send({status: 'error', message: 'Invalid username (maximum 32 characters)'});
-
-    if (req.body.username.includes('/'))
-        return res.send({status: 'error', message: 'Invalid username (illegal characters)'});
-
-    // Upload user information to s3
+// User preauthentication
+app.post('/api/preauth', (req, res) => {
+    // Check if user exists
     var params = {
         Bucket: BUCKET,
-        Key: 'users/' + req.params.user + '/info',
-        Body: JSON.stringify({
-            username: req.body.username,
-            privkey: req.body.privkey,
-            pubkey: req.body.pubkey,
-            kdf: req.body.kdf,
-        })
+        Prefix: 'users/' + req.body.username,
     }
 
-    S3.upload(params, (err, data) => {
+    S3.listObjectsV2(params, (err, data) => {
         if (err)
         {
-            console.log('Upload error: ', err)
-            res.sendStatus(500)
-        } else
-        {
-            console.log('Upload OK: ', data)
-            res.send({status: 'ok', message: 'Created user'})
+            console.log('Existing check error: ', err)
+            return res.sendStatus(500)
         }
+
+        if (data.KeyCount == 0)
+            return res.send({status: 'error', message: 'Login failed, please check your credentials and try again.'})
+
+        // Get user information
+        S3.getObject(params, (err, userdata) => {
+            if (err)
+                return res.sendStatus(500)
+
+            var nonce = crypto.randomBytes(32)
+            var expires = new Date();
+
+            expires.setMinutes(expires.getMinutes() + 5);
+
+            // Set user auth salt and expiration
+            var params = {
+                Bucket: BUCKET,
+                Key: 'users/' + req.body.username + '/nonce',
+                Body: JSON.stringify({nonce: nonce.toString('hex'), expires: expires.toUTCString()})
+            }
+
+            S3.upload(params, (err, data) => {
+                if (err)
+                    return res.sendStatus(500)
+
+                console.log('Starting auth for ' + req.body.username)
+
+                res.send({
+                    status: 'ok',
+                    salt: salt.toString('hex'),
+                    expires: expires.toUTCString(),
+                    privkey: userdata.privkey,
+                    kdf: userdata.kdf,
+                })
+            })
+        })
     })
 })
 
@@ -159,24 +212,20 @@ app.get('/api/tree/:user', (req, res) => {
 
     S3.listObjectsV2(params, (err, data) => {
         if (err)
-        {
-            console.log('List error: ', err)
-            res.sendStatus(500)
-        } else
-        {
-            console.log('List OK: ', data)
+            return res.sendStatus(500)
 
-            res.send({
-                status: 'ok',
-                files: data.Contents.map(x => {
-                    return {
-                        name: x.Key,
-                        modified: x.LastModified,
-                        size: x.Size
-                    }
-                })
+        console.log('List OK: ', data)
+
+        res.send({
+            status: 'ok',
+            files: data.Contents.map(x => {
+                return {
+                    name: x.Key,
+                    modified: x.LastModified,
+                    size: x.Size
+                }
             })
-        }
+        })
     })
 })
 
