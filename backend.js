@@ -19,9 +19,16 @@ const session = require('express-session')
 const S3 = new AWS.S3({apiVersion: '2006-03-01', region: 'us-east-1'})
 
 // SSL credentials
-const privateKey = fs.readFileSync('cert/server.key', 'utf8')
+const privateKeyData = fs.readFileSync('cert/server.key', 'utf8')
 const certificate = fs.readFileSync('cert/server.crt', 'utf8')
-const credentials = {key: privateKey, cert: certificate}
+const credentials = {key: privateKeyData, cert: certificate}
+
+const privateKey = crypto.createPrivateKey(privateKeyData)
+
+const publicKeyEncoded = crypto.createPublicKey(certificate).export({
+    type: 'pkcs1',
+    format: 'jwk'
+})
 
 // Globals
 const app         = express()
@@ -95,7 +102,7 @@ app.post('/api/register', (req, res) => {
         console.log(req.body)
 
         // Check input fields exist
-        if (!req.body.username || !req.body.privkey || !req.body.pubkey || !req.body.kdf)
+        if (!req.body.username || !req.body.privateKey || !req.body.publicKey)
             return res.send({status: 'error', message: 'Invalid request (missing fields)'});
 
         // Check input field validity
@@ -111,9 +118,8 @@ app.post('/api/register', (req, res) => {
             Key: 'users/' + req.body.username + '/info',
             Body: JSON.stringify({
                 username: req.body.username,
-                privkey: req.body.privkey,
-                pubkey: req.body.pubkey,
-                kdf: req.body.kdf,
+                privateKey: req.body.privateKey,
+                publicKey: req.body.publicKey,
             })
         }
 
@@ -124,7 +130,7 @@ app.post('/api/register', (req, res) => {
                 return res.sendStatus(500)
             }
 
-            console.log('Upload OK: ', data)
+            console.log('Created new user ' + req.body.username)
             return res.send({status: 'ok', message: 'Created user'})
         })
     })
@@ -132,6 +138,8 @@ app.post('/api/register', (req, res) => {
 
 // User preauthentication
 app.post('/api/preauth', (req, res) => {
+    console.log('Preauthenticating', req.body.username)
+
     // Check if user exists
     var params = {
         Bucket: BUCKET,
@@ -146,17 +154,123 @@ app.post('/api/preauth', (req, res) => {
         }
 
         if (data.KeyCount == 0)
-            return res.send({status: 'error', message: 'Login failed, please check your credentials and try again.'})
+        {
+            console.log(req.body.username + ' login failed: no such user')
+            return res.send({status: 'error', message: 'Login failed, please try again.'})
+        }
+
+        params = {
+            Bucket: BUCKET,
+            Key: 'users/' + req.body.username + '/info',
+        }
 
         // Get user information
         S3.getObject(params, (err, userdata) => {
             if (err)
+            {
+                console.log(err)
                 return res.sendStatus(500)
+            }
 
             var nonce = crypto.randomBytes(32)
-            var expires = new Date();
+            var expires = new Date()
 
-            expires.setMinutes(expires.getMinutes() + 5);
+            var userdataBody = JSON.parse(userdata.Body)
+
+            expires.setMinutes(expires.getMinutes() + 5)
+
+            // Set user auth salt and expiration
+            var params = {
+                Bucket: BUCKET,
+                Key: 'users/' + req.body.username + '/nonce',
+                Body: JSON.stringify({ nonce: nonce.toString('hex'), expires: expires.toUTCString() })
+            }
+
+            console.log('user public key data: ',userdataBody.publicKey)
+
+            var userPublicKey = crypto.createPublicKey({
+                key: userdataBody.publicKey,
+                format: 'jwk',
+            })
+
+            console.log('user public key: ', userPublicKey)
+
+            // Encrypt nonce for response
+            var encryptedNonce = crypto.publicEncrypt(
+                {
+                    key: userPublicKey,
+                    oaepHash: 'sha256'
+                },
+                nonce
+            )
+            console.log('encryptedNonce: ', encryptedNonce)
+
+            S3.upload(params, (err, data) => {
+                if (err)
+                {
+                    console.log(err)
+                    return res.sendStatus(500)
+                }
+
+                console.log('Starting auth for ' + req.body.username + ': userdata', userdata)
+
+                res.send({
+                    status: 'ok',
+                    nonce: encryptedNonce.toString('hex'),
+                    expires: expires.toUTCString(),
+                    privateKey: userdataBody.privateKey,
+                    serverPublicKey: publicKeyEncoded
+                })
+            })
+        })
+    })
+})
+
+// User authentication
+app.post('/api/auth', (req, res) => {
+    console.log('Authenticating ', req.body.username)
+
+    // Query user nonce
+    var params = {
+        Bucket: BUCKET,
+        Key: 'users/' + req.body.username + '/nonce',
+    }
+
+    S3.getObject(params, (err, data) => {
+        if (err)
+        {
+            console.log(err)
+            return res.send({status: 'error', message: 'Login failed, please try again.'})
+        }
+
+        // Parse encoded nonce
+        var encryptedNonce = Buffer.from(req.body.nonce, 'hex')
+
+        // Try decrypting nonce
+        var decryptedNonce = crypto.privateDecrypt({
+            key: privateKey,
+            oaepHash: 'sha256'
+        }, encryptedNonce)
+
+        // Check the nonce values match
+        if (decryptedNonce.toString('hex') != JSON.parse(data.Body).nonce)
+        {
+            console.log(req.body.username + ' auth failed, bad nonce')
+            return res.send({status: 'error', message: 'Login failed, please try again.'})
+        }
+
+        // Get user information
+        S3.getObject(params, (err, userdata) => {
+            if (err)
+            {
+                console.log(err)
+                return res.sendStatus(500)
+            }
+
+            var nonce = crypto.randomBytes(32)
+            var expires = new Date()
+
+            expires.setMinutes(expires.getMinutes() + 5)
 
             // Set user auth salt and expiration
             var params = {
@@ -167,16 +281,19 @@ app.post('/api/preauth', (req, res) => {
 
             S3.upload(params, (err, data) => {
                 if (err)
+                {
+                    console.log(err)
                     return res.sendStatus(500)
+                }
 
-                console.log('Starting auth for ' + req.body.username)
+                console.log('Starting auth for ' + req.body.username + ': userdata', userdata)
 
                 res.send({
                     status: 'ok',
-                    salt: salt.toString('hex'),
+                    nonce: nonce.toString('hex'),
                     expires: expires.toUTCString(),
-                    privkey: userdata.privkey,
-                    kdf: userdata.kdf,
+                    privateKey: JSON.parse(userdata.Body).privateKey,
+                    serverPublicKey: publicKeyEncoded
                 })
             })
         })

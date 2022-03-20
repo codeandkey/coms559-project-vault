@@ -7,15 +7,18 @@ html
         script(src='/static/js/jquery-3.6.0.min.js')
         script(src='/static/js/popper.min.js')
         script(src='/static/js/bootstrap.min.js')
-        script(src='/static/js/index.js')
+        script(src='/static/js/app.js')
     body
-        div(id='center' class='container')
-            input(type='text' placeholder='Username' class='m-2' id='input-username')
-            br
-            input(type='password' placeholder='Password' class='m-2' id='input-password')
-            br
-            div(class='container-fluid' class='m-2 d-flex justify-content-center')
-                button(type='button' class='btn btn-primary' class='m-2') Login
-                button(type='button' class='btn btn-secondary' class='m-2' onclick='doRegister()') Register
-        div(style='container-fluid')
-            div(id='notify' class='alert')
+        div(id='login-view')
+            div(id='center' class='container')
+                input(type='text' placeholder='Username' class='m-2' id='input-username')
+                br
+                input(type='password' placeholder='Password' class='m-2' id='input-password')
+                br
+                div(class='container-fluid' class='m-2 d-flex justify-content-center')
+                    button(type='button' class='btn btn-primary' class='m-2' onclick='doLogin()') Login
+                    button(type='button' class='btn btn-secondary' class='m-2' onclick='doRegister()') Register
+            div(style='container-fluid')
+                div(id='notify' class='alert')
+        div(id='app-view')
+            div Yo yo yo yo yo yo yo yo

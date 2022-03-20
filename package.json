@@ -17,7 +17,7 @@
   },
   "homepage": "https://github.com/codeandkey/coms559-project-vault#readme",
   "dependencies": {
-    "aws-sdk": "^2.1095.0",
+    "aws-sdk": "^2.1096.0",
     "body-parser": "^1.19.2",
     "express": "^4.17.3",
     "express-session": "^1.17.2",
