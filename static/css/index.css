@@ -33,3 +33,37 @@
     width: 50%;
     left: 25%;
 }
+
+#action-menu {
+    position: fixed;
+    width: 16em;
+    height: 100%;
+    left: 0px;
+    top: 0px;
+    background-color: #efefef;
+    border-right: 1px solid #444444;
+}
+
+#title {
+    width: 100%;
+    background-color: #efefef;
+    color: black;
+    font-size: 3em;
+    text-align: center;
+    border-bottom: 1px solid #999999;
+}
+
+.action {
+    width: 100%;
+    background-color: #efefef;
+    color: black;
+    padding: 1em;
+    cursor: pointer;
+}
+
+.action:hover {
+    width: 100%;
+    background-color: #77b7ff;
+    color: black;
+    transition: background-color 0.25s linear;
+}

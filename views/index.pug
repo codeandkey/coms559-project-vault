@@ -21,4 +21,10 @@ html
             div(style='container-fluid')
                 div(id='notify' class='alert')
         div(id='app-view')
-            div Yo yo yo yo yo yo yo yo
+            div(id='action-menu')
+                div(id='title') Vault
+                div(class='action' onclick='doUploadFile()') My Files
+                div(class='action' onclick='doUploadFile()') Shared With Me
+                div(class='action-sep')
+                div(class='action' onclick='doUploadFile()') Upload
+            div(id='file-list')
