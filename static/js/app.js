@@ -252,27 +252,9 @@ async function generateAuthResponse(password, preauth)
 
     console.log('nonceData', nonceData)
 
-    // Import server public key
-    var serverPublicKey = await crypto.subtle.importKey(
-        'jwk',
-        preauth.serverPublicKey,
-        ALGORITHM_RSA,
-        false,
-        ['encrypt']
-    )
-
-    console.log('serverPublicKey', serverPublicKey)
-
-    // Re-encrypt nonce with server public key
-    var ctNonce = await crypto.subtle.encrypt(
-        ALGORITHM_RSA,
-        serverPublicKey,
-        nonceData
-    )
-
     // Construct response
     return {
-        nonce: encodeHex(ctNonce)
+        nonce: encodeHex(nonceData),
     }
 }
 

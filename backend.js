@@ -168,7 +168,7 @@ app.post('/api/preauth', (req, res) => {
         S3.getObject(params, (err, userdata) => {
             if (err)
             {
-                console.log(err)
+                console.log('Get user check err: ' + err)
                 return res.sendStatus(500)
             }
 
@@ -244,57 +244,42 @@ app.post('/api/auth', (req, res) => {
         }
 
         // Parse encoded nonce
-        var encryptedNonce = Buffer.from(req.body.nonce, 'hex')
-
-        // Try decrypting nonce
-        var decryptedNonce = crypto.privateDecrypt({
-            key: privateKey,
-            oaepHash: 'sha256'
-        }, encryptedNonce)
+        var clientNonce = Buffer.from(req.body.nonce, 'hex')
 
         // Check the nonce values match
-        if (decryptedNonce.toString('hex') != JSON.parse(data.Body).nonce)
+        if (clientNonce.toString('hex') != JSON.parse(data.Body).nonce)
         {
             console.log(req.body.username + ' auth failed, bad nonce')
             return res.send({status: 'error', message: 'Login failed, please try again.'})
         }
 
-        // Get user information
-        S3.getObject(params, (err, userdata) => {
+        // Set user auth token
+        var token = crypto.randomBytes(32)
+        var expires = new Date();
+
+        // 1 hour session
+        expires.setMinutes(expires.getMinutes() + 60);
+
+        // Set user auth token
+        var params = {
+            Bucket: BUCKET,
+            Key: 'users/' + req.body.username + '/token',
+            Body: JSON.stringify({token: token.toString('hex'), expires: expires.toUTCString()})
+        }
+
+        S3.upload(params, (err, data) => {
             if (err)
             {
                 console.log(err)
                 return res.sendStatus(500)
             }
 
-            var nonce = crypto.randomBytes(32)
-            var expires = new Date()
+            console.log('Authenticated ' + req.body.username)
 
-            expires.setMinutes(expires.getMinutes() + 5)
-
-            // Set user auth salt and expiration
-            var params = {
-                Bucket: BUCKET,
-                Key: 'users/' + req.body.username + '/nonce',
-                Body: JSON.stringify({nonce: nonce.toString('hex'), expires: expires.toUTCString()})
-            }
-
-            S3.upload(params, (err, data) => {
-                if (err)
-                {
-                    console.log(err)
-                    return res.sendStatus(500)
-                }
-
-                console.log('Starting auth for ' + req.body.username + ': userdata', userdata)
-
-                res.send({
-                    status: 'ok',
-                    nonce: nonce.toString('hex'),
-                    expires: expires.toUTCString(),
-                    privateKey: JSON.parse(userdata.Body).privateKey,
-                    serverPublicKey: publicKeyEncoded
-                })
+            res.send({
+                status: 'ok',
+                token: token.toString('hex'),
+                expires: expires.toUTCString(),
             })
         })
     })

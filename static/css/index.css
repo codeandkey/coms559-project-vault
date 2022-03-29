@@ -59,6 +59,7 @@
     color: black;
     padding: 1em;
     cursor: pointer;
+    text-align: center;
 }
 
 .action:hover {
