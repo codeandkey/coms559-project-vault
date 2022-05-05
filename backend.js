@@ -40,8 +40,8 @@ app.set('view engine', 'pug')
 
 // Body parsing
 app.use(express.raw({limit: '256mb', type: 'application/octet-stream'}))
-app.use(express.json({limit: '16kb', type: 'application/json'}))
-app.use(express.urlencoded({limit: '16kb', extended: true}))
+app.use(express.json({limit: '256mb', type: 'application/json'}))
+app.use(express.urlencoded({limit: '256mb', extended: true}))
 
 // Web application routes
 app.use('/static', express.static('static'))
@@ -58,26 +58,63 @@ app.use(session({
     saveUninitialized: false
 }))
 
+/**
+ * Verifies a user token is valid and not expired.
+ * 
+ * @param {String} username 
+ * @param {String} token 
+ * @param {Function(error)} cb 
+ */
+function verifyToken(username, token, cb) {
+    var params = {
+        Bucket: BUCKET,
+        Key: 'users/' + username + '/token',
+    }
+
+    S3.getObject(params, (err, data) => {
+        if (err) {
+            return cb(err);
+        }
+
+        var body = JSON.parse(data.Body);
+        var expires = Date.parse(body.expires);
+
+        if (token != body.token)
+            return cb('incorrect');
+
+        if (Date.now() >= expires)
+            return cb('expired');
+
+        cb();
+    })
+}
+
 // REST API routes
 
 // User file upload
 app.put('/api/upload/:user/:path(*)', (req, res) => {
-    var params = {
-        Bucket: BUCKET,
-        Key: 'users/' + req.params.user + '/files/' + req.params.path,
-        Body: req.body
-    }
-
-    S3.upload(params, (err, data) => {
-        if (err)
-        {
-            console.log('Upload error: ', err)
-            res.sendStatus(500)
-        } else
-        {
-            console.log('Upload OK: ', data)
-            res.send('Thanks')
+    verifyToken(req.params.user, req.body.token, (err) => {
+        if (err) {
+            return res.send({status: 'error', message: 'Invalid token: ' + err})
         }
+
+        var params = {
+            Bucket: BUCKET,
+            Key: 'users/' + req.params.user + '/files/' + req.params.path,
+            Body: JSON.stringify(req.body.data)
+        }
+
+        S3.upload(params, (err, data) => {
+            if (err)
+            {
+                console.log('Upload error: ', err)
+                res.sendStatus(500)
+            } else
+            {
+                console.log('Upload OK: ', data)
+                res.send({status: 'ok'})
+            }
+        })
     })
 })
 
@@ -177,6 +214,8 @@ app.post('/api/preauth', (req, res) => {
 
             var userdataBody = JSON.parse(userdata.Body)
 
+            //console.log('received userdata ' + JSON.stringify(userdataBody));
+
             expires.setMinutes(expires.getMinutes() + 5)
 
             // Set user auth salt and expiration
@@ -219,7 +258,7 @@ app.post('/api/preauth', (req, res) => {
                     nonce: encryptedNonce.toString('hex'),
                     expires: expires.toUTCString(),
                     privateKey: userdataBody.privateKey,
-                    serverPublicKey: publicKeyEncoded
+                    publicKey: userdataBody.publicKey, 
                 })
             })
         })
@@ -228,7 +267,7 @@ app.post('/api/preauth', (req, res) => {
 
 // User authentication
 app.post('/api/auth', (req, res) => {
-    console.log('Authenticating ', req.body.username)
+    console.log('Authenticating', req.body.username)
 
     // Query user nonce
     var params = {
@@ -286,46 +325,56 @@ app.post('/api/auth', (req, res) => {
 })
 
 // User file download.
-app.get('/api/download/:user/:path(*)', (req, res) => {
-    var params = {
-        Bucket: BUCKET,
-        Key: 'users/' + req.params.user + '/files/' + req.params.path,
-    }
-
-    S3.getObject(params, (err, data) => {
+app.post('/api/download/:user/:path(*)', (req, res) => {
+    verifyToken(req.params.user, req.body.token, (err) => {
         if (err)
-        {
-            console.log('Download error: ', err)
-            res.sendStatus(500)
-        } else
-        {
-            console.log('Download OK: ', data)
-            res.send({status: 'ok', body: data.Body})
+            return res.send({status: 'error', 'message': 'Invalid token: ' + err})
+
+        var params = {
+            Bucket: BUCKET,
+            Key: 'users/' + req.params.user + '/files/' + req.params.path,
         }
+
+        S3.getObject(params, (err, data) => {
+            if (err)
+            {
+                console.log('Download error: ', err)
+                res.sendStatus(500)
+            } else
+            {
+                console.log('Download OK: ', data)
+                res.send({status: 'ok', data: JSON.parse(data.Body)})
+            }
+        })
     })
 })
 
 // User directory tree.
-app.get('/api/tree/:user', (req, res) => {
-    var params = {
-        Bucket: BUCKET,
-        Prefix: 'users/' + req.params.user + '/files',
-    }
-
-    S3.listObjectsV2(params, (err, data) => {
+app.post('/api/tree/:user', (req, res) => {
+    verifyToken(req.params.user, req.body.token, (err) => {
         if (err)
-            return res.sendStatus(500)
+            return res.send({status: 'error', 'message': 'Invalid token: ' + err})
 
-        console.log('List OK: ', data)
+        var params = {
+            Bucket: BUCKET,
+            Prefix: 'users/' + req.params.user + '/files',
+        }
 
-        res.send({
-            status: 'ok',
-            files: data.Contents.map(x => {
-                return {
-                    name: x.Key,
-                    modified: x.LastModified,
-                    size: x.Size
-                }
+        S3.listObjectsV2(params, (err, data) => {
+            if (err)
+                return res.sendStatus(500)
+
+            console.log('List OK: ', data)
+
+            res.send({
+                status: 'ok',
+                files: data.Contents.map(x => {
+                    return {
+                        name: x.Key,
+                        modified: x.LastModified,
+                        size: x.Size
+                    }
+                })
             })
         })
     })

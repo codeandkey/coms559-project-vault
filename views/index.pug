@@ -23,8 +23,9 @@ html
         div(id='app-view')
             div(id='action-menu')
                 div(id='title') Vault
-                div(class='action' onclick='doUploadFile()') My Files
-                div(class='action' onclick='doUploadFile()') Shared With Me
+                div(class='action') My Files
+                div(class='action') Shared With Me
                 div(class='action-sep')
-                div(class='action' onclick='doUploadFile()') Upload
-            div(id='file-list')
+                div(class='action' onclick='startUploadFile()') Upload
+            div(id='files')
+        input(id='upload-input' style='display: none' type='file' name='files[]' onchange='doUploadFile(this)')

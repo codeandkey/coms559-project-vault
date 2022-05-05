@@ -14,6 +14,13 @@ var ALGORITHM_RSA = {
     hash: 'SHA-256'
 }
 
+/// ==== Session state ====
+var session = {
+    privateKey: null,
+    username: null,
+    token: null,
+}
+
 /// ==== Buffer encoding ====
 
 /**
@@ -240,8 +247,9 @@ async function generateAuthResponse(password, preauth)
     )
 
     console.log('privateKey', privateKey)
-
     console.log('preauth nonce', preauth.nonce)
+
+    session.privateKey = privateKey // TODO refactor this
 
     // Decrypt server nonce
     var nonceData = await crypto.subtle.decrypt(
@@ -269,15 +277,22 @@ async function generateAuthResponse(password, preauth)
  * @param {Object} data Request parameters.
  * @returns {Any} null if an error occurs, otherwise the received Object.
  */
-async function makeRequest(endpoint, data)
+async function makeRequest(endpoint, data, method)
 {
-    response = await $.post({
+    if (method == null)
+        method = 'POST'
+
+    response = await $.ajax({
+        method: method,
         url: endpoint,
         data: data,
     })
 
     if (response.status == 'error')
+    {
+        console.log('request error:', response.message)
         return showNotification('error', response.message)
+    }
 
     console.log('request ', endpoint, ', response ', response)
 
@@ -319,6 +334,10 @@ async function doLogin()
 
     console.log('authenticated OK:', authResp)
 
+    session.token = authResp.token;
+    session.publicKey = preauth.publicKey;
+    session.username = username;
+
     // Load authenticated view
     $('#login-view').css({ opacity: 0 })
 
@@ -349,3 +368,140 @@ async function doRegister()
     if (await makeRequest('/api/register', identity))
         return doLogin()
 }
+
+/**
+ * Upload click bind to prompt user for a file.
+ */
+function startUploadFile() {
+    $('#upload-input').trigger('click')
+}
+
+/**
+ * Queries the user's available files and lists them in the UI.
+ */
+async function updateFiles()
+{
+    var resp = await makeRequest('/api/tree/' + session.username, { token: session.token });
+
+    if (!resp)
+        return;
+
+    $('#files').html('')
+
+    for (var i = 0; i < resp.files.length; ++i)
+    {
+        $('#files').append('<div class="file">' + resp.files[i].name + '</div>')
+    }
+}
+
+/**
+ * Downloads a user file.
+ */
+async function downloadFile(path)
+{
+    var resp = await makeRequest('/api/download/' + session.username + '/' + path, { token: session.token })
+
+    if (!resp)
+        return;
+
+    var keyBuf = decodeHex(resp.data.keys)
+
+    console.log('found keybuf', keyBuf)
+
+    var keys = await crypto.subtle.decrypt(
+        ALGORITHM_RSA,
+        session.privateKey,
+        keyBuf
+    )
+
+    console.log('decrypted keys', encodeHex(keys), keys)
+
+    var key = keys.slice(0, 16)
+    var iv = keys.slice(16)
+
+    console.log('key', encodeHex(key))
+    console.log('iv', encodeHex(iv))
+    var symKey = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC', iv: iv }, false, ['decrypt'])
+
+    var ctstr = decodeHex(resp.data.filedata)
+
+    var decrypted = await window.crypto.subtle.decrypt(
+        {
+            name: 'AES-CBC',
+            length: 256,
+            iv: iv,
+        },
+        symKey,
+        ctstr,
+    )
+
+    var blob = new Blob([new Uint8Array(decrypted)], {type: "application/octet-stream"});
+    var link = document.createElement('a');
+    link.href = window.URL.createObjectURL(blob);
+    var parts = path.split('/')
+    var fileName = parts[parts.length - 1]
+    link.download = fileName;
+    link.click();
+}
+
+/**
+ * Uploads a file once the user has selected one.
+ */
+async function doUploadFile(input) {
+    var reader = new FileReader();
+
+    reader.onload = async function(e) {
+        // Make symmetric key
+        var iv = randomBytes(16)
+        var key = randomBytes(16)
+
+        var symKey = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC', iv: iv }, false, ['encrypt'])
+
+        var encrypted = await window.crypto.subtle.encrypt(
+            {
+                name: 'AES-CBC',
+                length: 256,
+                iv: iv,
+            },
+            symKey,
+            reader.result,
+        )
+
+        // Encrypt symmetric key with our public key
+        console.log('jwk: ', JSON.stringify(session.publicKey))
+
+        var publicKey = await crypto.subtle.importKey('jwk', session.publicKey, ALGORITHM_RSA, false, ['encrypt'])
+        console.log('imported publickey')
+        console.log(reader.result)
+
+        console.log(publicKey)
+
+        var keyData = new Uint8Array([...key, ...iv])
+
+        var encryptedKey = await crypto.subtle.encrypt(
+            ALGORITHM_RSA,
+            publicKey,
+            keyData,
+        )
+
+        console.log('encrypted', encrypted)
+        console.log('encryptedKey', encryptedKey)
+
+        // Send upload request
+        var res = await makeRequest('/api/upload/' + session.username + '/' + input.files[0].name, {
+            token: session.token,
+            data: {
+                keys: encodeHex(encryptedKey),
+                filedata: encodeHex(encrypted)
+            }
+        }, 'PUT')
+
+        if (!res)
+            return;
+
+        showNotification('ok', 'Uploaded file ' + input.files[0].name);
+    }
+
+    reader.readAsArrayBuffer(input.files[0]);
+}
+
