@@ -47,7 +47,8 @@
 
 #files {
     left: 16em;
-    position: fixed;
+    position: absolute;
+    right: 0px;
 }
 
 .file {

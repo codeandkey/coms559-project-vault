@@ -21,6 +21,7 @@ var session = {
     token: null,
 }
 
+
 /// ==== Buffer encoding ====
 
 /**
@@ -55,6 +56,23 @@ function decodeHex(hex)
  */
 var randomBytes = n => crypto.getRandomValues(new Uint8Array(n))
 
+/**
+ * Converts a byte count to a human readable format.
+ * 
+ * @param {Number} x Bytes
+ * @returns String
+ */
+function formatBytes(x)
+{
+    const units = ['B', 'KB', 'MB', 'GB']
+    let l = 0, n = parseInt(x, 10) || 0
+
+    while(n >= 1024 && ++l)
+        n /= 1024
+
+    return(n.toFixed(n < 10 && l > 0 ? 1 : 0) + ' ' + units[l])
+}
+
 /// ==== Notifications ====
 
 /**
@@ -80,6 +98,18 @@ function showNotification(kind, message)
     setTimeout(function() {
         $('#notify').css({opacity: 0.0})
     }, 4000)
+}
+
+function switchToFileView()
+{
+    // Load authenticated view
+    $('#login-view').css({ opacity: 0 })
+
+    setTimeout(() => {
+        $('#login-view').css({ display: 'none' })
+        $('#app-view').css({ display: 'block' })
+        $('#app-view').css({ opacity: 1 })
+    }, 1000)
 }
 
 /// ==== Cryptography ====
@@ -325,7 +355,7 @@ async function doLogin()
     if (!authReq)
         return;
 
-    authReq.username = username;
+    authReq.username = username
 
     console.log('authreq body: ', authReq)
 
@@ -334,18 +364,17 @@ async function doLogin()
 
     console.log('authenticated OK:', authResp)
 
-    session.token = authResp.token;
-    session.publicKey = preauth.publicKey;
-    session.username = username;
+    session.token = authResp.token
+    session.publicKey = preauth.publicKey
+    session.username = username
 
-    // Load authenticated view
-    $('#login-view').css({ opacity: 0 })
+    // Serialize cookie
+    document.cookie = '';
+    for (const [k, v] of Object.entries(session))
+        document.cookie += k + '=' + v + ';'
 
-    setTimeout(() => {
-        $('#login-view').css({ display: 'none' })
-        $('#app-view').css({ display: 'block' })
-        $('#app-view').css({ opacity: 1 })
-    }, 1000)
+    updateFiles();
+    switchToFileView()
 }
 
 /**
@@ -377,6 +406,14 @@ function startUploadFile() {
 }
 
 /**
+ * Share click bind to prompt user for a recipient.
+ */
+function shareFile(path) {
+    var un = window.prompt('Who will you share the file with?')
+    doShareFile(path, un)
+}
+
+/**
  * Queries the user's available files and lists them in the UI.
  */
 async function updateFiles()
@@ -386,13 +423,40 @@ async function updateFiles()
     if (!resp)
         return;
 
-    $('#files').html('')
+    const sregex = /^shared\/[^\/]+\//g;
+
+    $('#files').html('<thead><tr><th scope="col">Owner</th><th scope="col">File</th><th scope="col">Size</th><th scope="col"></th><th scope="col"></th></tr></thead>')
 
     for (var i = 0; i < resp.files.length; ++i)
     {
-        $('#files').append('<div class="file">' + resp.files[i].name + '</div>')
+        var fname = resp.files[i].name;
+        var found;
+
+        var owners = 'YOU';
+
+        var arrow = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/></svg>';
+
+        while (true)
+        {
+            found = fname.match(sregex);
+
+            if (!found || found.length < 0)
+                break;
+
+            owners = found[0].split('/')[1] + arrow + owners;
+            fname = fname.substr(found[0].length)
+        }
+
+        $('#files').append(
+            '<tr><td>' + owners + '</td><td>'
+            + fname + '</td><td>'
+            + formatBytes(resp.files[i].size)
+            + '</td><td><button class="btn mr-1" onclick="downloadFile(\'' + resp.files[i].name + '\')">Download</button>'
+            + '<button class="btn ml-1" onclick="shareFile(\'' + resp.files[i].name + '\')">Share</button></td></tr>')
     }
 }
+
+
 
 /**
  * Downloads a user file.
@@ -500,8 +564,119 @@ async function doUploadFile(input) {
             return;
 
         showNotification('ok', 'Uploaded file ' + input.files[0].name);
+        updateFiles();
     }
 
     reader.readAsArrayBuffer(input.files[0]);
 }
 
+/**
+ * Shares an existing file to another user.
+ */
+async function doShareFile(path, user) {
+    // Query other user's public key
+    var pkResp = await makeRequest('/api/key/' + user, {}, 'POST')
+
+    if (!pkResp)
+        return;
+
+    var otherPublicKey = await crypto.subtle.importKey('jwk', pkResp.publicKey, ALGORITHM_RSA, false, ['encrypt'])
+    console.log('imported otherpublickey')
+
+    // Download and decrypt file data
+    var resp = await makeRequest('/api/download/' + session.username + '/' + path, { token: session.token })
+
+    if (!resp)
+        return;
+
+    var keyBuf = decodeHex(resp.data.keys)
+
+    console.log('found keybuf', keyBuf)
+
+    var keys = await crypto.subtle.decrypt(
+        ALGORITHM_RSA,
+        session.privateKey,
+        keyBuf
+    )
+
+    console.log('decrypted keys', encodeHex(keys), keys)
+
+    var key = keys.slice(0, 16)
+    var iv = keys.slice(16)
+
+    console.log('key', encodeHex(key))
+    console.log('iv', encodeHex(iv))
+    var symKey = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC', iv: iv }, false, ['decrypt'])
+
+    var ctstr = decodeHex(resp.data.filedata)
+
+    var decrypted = await window.crypto.subtle.decrypt(
+        {
+            name: 'AES-CBC',
+            length: 256,
+            iv: iv,
+        },
+        symKey,
+        ctstr,
+    )
+
+    // Make symmetric key
+    var iv = randomBytes(16)
+    var key = randomBytes(16)
+
+    var symKey = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC', iv: iv }, false, ['encrypt'])
+
+    var encrypted = await window.crypto.subtle.encrypt(
+        {
+            name: 'AES-CBC',
+            length: 256,
+            iv: iv,
+        },
+        symKey,
+        decrypted,
+    )
+
+    // Encrypt symmetric key with their public key
+
+    var keyData = new Uint8Array([...key, ...iv])
+
+    var encryptedKey = await crypto.subtle.encrypt(
+        ALGORITHM_RSA,
+        otherPublicKey,
+        keyData,
+    )
+
+    console.log('encrypted', encrypted)
+    console.log('encryptedKey', encryptedKey)
+
+    // Send upload request
+    var res = await makeRequest('/api/share/' + user + '/' + session.username + '/' + path, {
+        token: session.token,
+        data: {
+            keys: encodeHex(encryptedKey),
+            filedata: encodeHex(encrypted)
+        }
+    }, 'PUT')
+
+    if (!res)
+        return;
+
+    showNotification('ok', 'Shared file ' + path + ' with ' + user);
+    updateFiles()
+}
+
+// ==== Restore state ====
+
+var stored = document.cookie.split('; ').reduce((result, v) => {
+  const k = v.split('=');
+  result[k[0]] = k[1];
+  return result;
+}, {})
+
+console.log('previous session: ', stored)
+
+if ('username' in stored && 'privateKey' in stored && 'token' in stored)
+{
+    session = stored;
+    switchToFileView();
+}

@@ -118,6 +118,46 @@ app.put('/api/upload/:user/:path(*)', (req, res) => {
     })
 })
 
+// User file share 
+app.put('/api/share/:dest/:user/:path(*)', (req, res) => {
+    verifyToken(req.params.user, req.body.token, (err) => {
+        if (err) {
+            return res.send({status: 'error', message: 'Invalid token: ' + err})
+        }
+        // Check if user exists
+        var params = {
+            Bucket: BUCKET,
+            Prefix: 'users/' + req.params.dest,
+        }
+
+        S3.listObjectsV2(params, (err, data) => {
+            if (err)
+            {
+                console.log('Existing check error: ', err)
+                return res.send({status: 'error', message: 'No such user'})
+            }
+
+            var params = {
+                Bucket: BUCKET,
+                Key: 'users/' + req.params.dest + '/files/shared/' + req.params.user + '/' + req.params.path,
+                Body: JSON.stringify(req.body.data)
+            }
+
+            S3.upload(params, (err, data) => {
+                if (err)
+                {
+                    console.log('Upload error: ', err)
+                    res.sendStatus(500)
+                } else
+                {
+                    console.log('Upload OK: ', data)
+                    res.send({status: 'ok'})
+                }
+            })
+        })
+    })
+})
+
 // User account creation
 app.post('/api/register', (req, res) => {
     // Check if user exists
@@ -366,15 +406,69 @@ app.post('/api/tree/:user', (req, res) => {
 
             console.log('List OK: ', data)
 
+            let filter = x => {
+                if (x.startsWith(params.Prefix + '/'))
+                    return x.substring(params.Prefix.length + 1)
+
+                return x
+            }
+
             res.send({
                 status: 'ok',
                 files: data.Contents.map(x => {
                     return {
-                        name: x.Key,
+                        name: filter(x.Key),
                         modified: x.LastModified,
                         size: x.Size
                     }
                 })
+            })
+        })
+    })
+})
+
+// User key request
+app.post('/api/key/:user', (req, res) => {
+    // Check if user exists
+    var params = {
+        Bucket: BUCKET,
+        Prefix: 'users/' + req.params.user,
+    }
+
+    S3.listObjectsV2(params, (err, data) => {
+        if (err)
+        {
+            console.log('Existing check error: ', err)
+            return res.sendStatus(500)
+        }
+
+        if (data.KeyCount == 0)
+        {
+            console.log(req.params.user + ' keyreq failed: no such user')
+            return res.send({status: 'error', message: 'No such user'})
+        }
+
+        params = {
+            Bucket: BUCKET,
+            Key: 'users/' + req.params.user + '/info',
+        }
+
+        // Get user information
+        S3.getObject(params, (err, userdata) => {
+            if (err)
+            {
+                console.log('Get user check err: ' + err)
+                return res.sendStatus(500)
+            }
+
+            var nonce = crypto.randomBytes(32)
+            var expires = new Date()
+
+            var userdataBody = JSON.parse(userdata.Body)
+
+            res.send({
+                status: 'ok',
+                publicKey: userdataBody.publicKey, 
             })
         })
     })

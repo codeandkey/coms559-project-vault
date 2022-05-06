@@ -18,8 +18,6 @@ html
                 div(class='container-fluid' class='m-2 d-flex justify-content-center')
                     button(type='button' class='btn btn-primary' class='m-2' onclick='doLogin()') Login
                     button(type='button' class='btn btn-secondary' class='m-2' onclick='doRegister()') Register
-            div(style='container-fluid')
-                div(id='notify' class='alert')
         div(id='app-view')
             div(id='action-menu')
                 div(id='title') Vault
@@ -27,5 +25,7 @@ html
                 div(class='action') Shared With Me
                 div(class='action-sep')
                 div(class='action' onclick='startUploadFile()') Upload
-            div(id='files')
+            table(id='files' class='table')
         input(id='upload-input' style='display: none' type='file' name='files[]' onchange='doUploadFile(this)')
+        div(style='container-fluid')
+            div(id='notify' class='alert')
