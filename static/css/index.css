@@ -81,3 +81,11 @@
     color: black;
     transition: background-color 0.25s linear;
 }
+
+#fingerprint {
+    position: fixed;
+    bottom: 0px;
+    width: 100%;
+    font-size: 1.5em;
+    text-align: center;
+}

@@ -73,6 +73,21 @@ function formatBytes(x)
     return(n.toFixed(n < 10 && l > 0 ? 1 : 0) + ' ' + units[l])
 }
 
+/**
+ * Returns a short fingerprint of a JWK public key.
+ * 
+ * @param {Object} key Input public key.
+ * @return {String} encoded key fingerprint
+ */
+async function fingerprint(key)
+{
+    var ckey = await crypto.subtle.importKey('jwk', key, ALGORITHM_RSA, true, ['encrypt'])
+    console.log('ckey', ckey)
+    var rawPublic = await crypto.subtle.exportKey('spki', ckey)
+    console.log('rawPublic', rawPublic)
+    return encodeHex((await crypto.subtle.digest('SHA-256', rawPublic)).slice(0, 8))
+}
+
 /// ==== Notifications ====
 
 /**
@@ -375,6 +390,8 @@ async function doLogin()
 
     updateFiles();
     switchToFileView()
+
+    $('#fingerprint').html('Logged in as ' + session.username + ' | your fingerprint is <b>' + await fingerprint(session.publicKey) + '</b>')
 }
 
 /**
@@ -580,8 +597,13 @@ async function doShareFile(path, user) {
     if (!pkResp)
         return;
 
-    var otherPublicKey = await crypto.subtle.importKey('jwk', pkResp.publicKey, ALGORITHM_RSA, false, ['encrypt'])
+    var otherPublicKey = await crypto.subtle.importKey('jwk', pkResp.publicKey, ALGORITHM_RSA, true, ['encrypt'])
     console.log('imported otherpublickey')
+
+    var fprint = await fingerprint(pkResp.publicKey)
+
+    if (!window.confirm('Sharing file to user fingerprint ' + fprint + '. Are you sure?'))
+        return showNotification('error', 'File share aborted.')
 
     // Download and decrypt file data
     var resp = await makeRequest('/api/download/' + session.username + '/' + path, { token: session.token })
@@ -637,7 +659,6 @@ async function doShareFile(path, user) {
     )
 
     // Encrypt symmetric key with their public key
-
     var keyData = new Uint8Array([...key, ...iv])
 
     var encryptedKey = await crypto.subtle.encrypt(
