@@ -1,0 +1,15 @@
+#!/bin/sh
+
+THISDIR=$(realpath $(dirname $0))
+DST=$THISDIR/backend.service
+
+rm -f $DST
+
+echo "[Unit]" >> $DST
+echo "Description=COMS559 Project Backend" >> $DST
+
+echo "[Service]" >> $DST
+echo "ExecStart=/bin/sh -c 'cd $THISDIR/../ && node backend.js'" >> $DST
+
+echo "[Install]" >> $DST
+echo "WantedBy=multi-user.target" >> $DST
