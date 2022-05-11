@@ -2,7 +2,6 @@
 const HTTP_PORT  = 8080
 const HTTPS_PORT = 8443
 const BUCKET = 'coms559-project-vault'
-const SESSION_SECRET = '014a87d765b0299099cae11ba56a991a6dc259a0699e38c765f3816ca9a548ef'
 
 // Requires
 const AWS     = require('aws-sdk')
@@ -13,7 +12,6 @@ const fs      = require('fs')
 const http    = require('http')
 const https   = require('https')
 const pug     = require('pug')
-const session = require('express-session')
 
 // S3 service
 const S3 = new AWS.S3({apiVersion: '2006-03-01', region: 'us-east-1'})
@@ -49,14 +47,6 @@ app.use('/static', express.static('static'))
 app.get('/', (req, res) => {
     res.render('index')
 })
-
-// Session management
-app.use(session({
-    secret: SESSION_SECRET,
-    cookie: { maxAge: 60000 },
-    resave: false,
-    saveUninitialized: false
-}))
 
 /**
  * Verifies a user token is valid and not expired.
